@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Best Factor Combination (2500 / 1500 / 750)</title>
+    <style>
+      :root {
+        --gap: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 24px;
+      }
+
+      h1 {
+        font-size: 1.3rem;
+        margin-bottom: 0.5rem;
+      }
+
+      p.hint {
+        color: #555;
+        margin-top: 0;
+      }
+
+      form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--gap);
+        align-items: end;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-weight: 600;
+      }
+
+      input[type="number"] {
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+      }
+
+      button {
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 700;
+        background: #0ea5e9;
+        color: white;
+      }
+
+      button:focus {
+        outline: 2px solid #0369a1;
+        outline-offset: 2px;
+      }
+
+      .row {
+        grid-column: 1 / -1;
+      }
+
+      textarea {
+        width: 100%;
+        height: 180px;
+        margin-top: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #ccc;
+      }
+
+      .note {
+        font-size: 0.9rem;
+        color: #444;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Best Factor Combination Finder</h1>
+    <p class="hint">Find the mix of <strong>2500</strong>, <strong>1500</strong>, and <strong>750</strong> that is
+      closest to your target. Overshoot is allowed; we minimize the excess/shortfall (ties favor the lower total).</p>
+
+    <form id="factorForm">
+      <label>
+        Target value
+        <input id="target" type="number" step="1" min="0" placeholder="e.g., 5200" required />
+      </label>
+
+      <label>
+        Available 2500s (big)
+        <input id="stockBig" type="number" step="1" min="0" placeholder="blank = unlimited" />
+      </label>
+
+      <label>
+        Available 1500s (mid)
+        <input id="stockMid" type="number" step="1" min="0" placeholder="blank = unlimited" />
+      </label>
+
+      <label>
+        Available 750s (small)
+        <input id="stockSmall" type="number" step="1" min="0" placeholder="blank = unlimited" />
+      </label>
+
+      <div class="row">
+        <button type="submit">Find Combination</button>
+      </div>
+    </form>
+
+    <textarea id="output" readonly placeholder="Result will appear here…"></textarea>
+    <p class="note">Tip: leave stock fields blank for unlimited supply. Ties are resolved in favor of the lower total
+      (i.e., prefers going under when equally close).</p>
+
+    <script>
+      (function () {
+        const V = { big: 2500, mid: 1500, small: 750 };
+
+        /**
+        * Compute best (closest) combination. Allows exceeding; minimizes |total - target|.
+        * Ties prefer the lower total (i.e., prefer under if equally close).
+        * @param {number} target
+        * @param {{big:number, mid:number, small:number}} stock - Use Infinity for unlimited.
+        * @returns {{big:number, mid:number, small:number, total:number, diff:number}}
+        */
+        function findBestCombination(target, stock) {
+          target = Math.max(0, Number(target) || 0);
+
+          // If all stocks are zero, return empty.
+          if ((stock.big || 0) === 0 && (stock.mid || 0) === 0 && (stock.small || 0) === 0) {
+            return { big: 0, mid: 0, small: 0, total: 0, diff: target };
+          }
+
+          // Determine the smallest available denomination to safely cap overshoot.
+          const minAvail = Math.min(
+            stock.big > 0 ? V.big : Infinity,
+            stock.mid > 0 ? V.mid : Infinity,
+            stock.small > 0 ? V.small : Infinity
+          );
+
+          // Fallback if somehow none available (should be caught above).
+          if (!isFinite(minAvail)) {
+            return { big: 0, mid: 0, small: 0, total: 0, diff: target };
+          }
+
+          // Upper bounds to keep loops finite even with Infinity stock.
+          const cap = (denom, count) => Math.min(
+            isFinite(count) ? count : Number.MAX_SAFE_INTEGER,
+            Math.max(0, Math.ceil((target + minAvail) / denom))
+          );
+
+          const maxB = cap(V.big, stock.big);
+          const maxM0 = cap(V.mid, stock.mid);
+          const maxS0 = cap(V.small, stock.small);
+
+          let best = { big: 0, mid: 0, small: 0, total: 0, diff: Math.abs(0 - target) };
+
+          for (let b = 0; b <= maxB; b++) {
+            const sumB = b * V.big;
+            // Given current b, you never need more mid than this cap.
+            const maxM = Math.min(maxM0, Math.max(0, Math.ceil((target + minAvail - sumB) / V.mid)));
+            for (let m = 0; m <= maxM; m++) {
+              const sumBM = sumB + m * V.mid;
+              const maxS = Math.min(maxS0, Math.max(0, Math.ceil((target + minAvail - sumBM) / V.small)));
+              for (let s = 0; s <= maxS; s++) {
+                const total = sumBM + s * V.small;
+                const diff = Math.abs(total - target);
+
+                if (diff < best.diff || (diff === best.diff && total < best.total)) {
+                  best = { big: b, mid: m, small: s, total, diff };
+                  if (diff === 0) return best; // perfect match
+                }
+              }
+            }
+          }
+          return best;
+        }
+
+        function parseStockValue(el) {
+          const raw = el.value.trim();
+          if (raw === "") return Infinity; // unlimited
+          const n = Number(raw);
+          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+        }
+
+        function formatResult(target, res) {
+          const parts = [];
+          if (res.big) parts.push(`${res.big} × 2500`);
+          if (res.mid) parts.push(`${res.mid} × 1500`);
+          if (res.small) parts.push(`${res.small} × 750`);
+          const equation = parts.length ? `${parts.join(" + ")} = ${res.total}` : `0 = ${res.total}`;
+          const delta = Math.abs(res.total - target);
+          const status = res.total === target ? "(exact)" : (res.total > target ? `(+${delta} excess)` : `(-${delta} short)`);
+
+          return [
+            `Target: ${target}`,
+            `Best Combination:`,
+            `  2500s: ${res.big}`,
+            `  1500s: ${res.mid}`,
+            `   750s: ${res.small}`,
+            `Total: ${res.total} ${status}`,
+            `Equation: ${equation}`
+          ].join("\n");
+        }
+
+        // Wire up the form without relying on global functions (fixes "calculate is not defined").
+        const form = document.getElementById('factorForm');
+        const out = document.getElementById('output');
+
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+
+          const target = Number(document.getElementById('target').value);
+          const stock = {
+            big: parseStockValue(document.getElementById('stockBig')),
+            mid: parseStockValue(document.getElementById('stockMid')),
+            small: parseStockValue(document.getElementById('stockSmall')),
+          };
+
+          const result = findBestCombination(target, stock);
+          out.value = formatResult(target, result);
+        });
+      })();
+    </script>
+  </body>
+</html>
